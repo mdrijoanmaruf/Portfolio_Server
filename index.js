@@ -23,6 +23,7 @@ const client = new MongoClient(uri, {
 });
 
 let projectsCollection;
+let courseworkCollection;
 let db;
 
 // Connect to MongoDB
@@ -31,6 +32,7 @@ async function connectDB() {
     // await client.connect();
     db = client.db("portfolioDB");
     projectsCollection = db.collection("projects");
+    courseworkCollection = db.collection("coursework");
     console.log("Connected to MongoDB!");
   } catch (error) {
     console.error("Failed to connect to MongoDB:", error);
@@ -286,6 +288,195 @@ app.put('/api/projects/:id', async (req, res) => {
         res.status(500).json({
             success: false,
             message: 'Error updating project',
+            error: error.message
+        });
+    }
+});
+
+// Coursework CRUD Routes
+
+// Get all coursework
+app.get('/api/coursework', async (req, res) => {
+    try {
+        const coursework = await courseworkCollection.find({}).sort({ createdAt: 1 }).toArray();
+        res.json({
+            success: true,
+            count: coursework.length,
+            data: coursework
+        });
+    } catch (error) {
+        console.error('Error fetching coursework:', error);
+        res.status(500).json({
+            success: false,
+            message: 'Error fetching coursework',
+            error: error.message
+        });
+    }
+});
+
+// Add new coursework (admin only)
+app.post('/api/coursework', async (req, res) => {
+    try {
+        const { title, status, userEmail } = req.body;
+
+        // Check if user is admin
+        if (userEmail !== 'rijoanmaruf@gmail.com') {
+            return res.status(403).json({
+                success: false,
+                message: 'Unauthorized access'
+            });
+        }
+
+        // Validation
+        if (!title) {
+            return res.status(400).json({
+                success: false,
+                message: 'Title is required'
+            });
+        }
+
+        // Validate status
+        const validStatuses = ['Completed', 'Ongoing', 'Upcoming'];
+        const courseStatus = status && validStatuses.includes(status) ? status : 'Ongoing';
+
+        // Create coursework object
+        const newCoursework = {
+            title: title.trim(),
+            status: courseStatus,
+            createdAt: new Date(),
+            updatedAt: new Date()
+        };
+
+        const result = await courseworkCollection.insertOne(newCoursework);
+
+        res.status(201).json({
+            success: true,
+            message: 'Coursework added successfully',
+            data: {
+                _id: result.insertedId,
+                ...newCoursework
+            }
+        });
+    } catch (error) {
+        console.error('Error adding coursework:', error);
+        res.status(500).json({
+            success: false,
+            message: 'Error adding coursework',
+            error: error.message
+        });
+    }
+});
+
+// Update coursework (admin only)
+app.put('/api/coursework/:id', async (req, res) => {
+    try {
+        const { id } = req.params;
+        const { title, status, userEmail } = req.body;
+
+        // Check if user is admin
+        if (userEmail !== 'rijoanmaruf@gmail.com') {
+            return res.status(403).json({
+                success: false,
+                message: 'Unauthorized access'
+            });
+        }
+
+        // Validate ObjectId
+        if (!ObjectId.isValid(id)) {
+            return res.status(400).json({
+                success: false,
+                message: 'Invalid coursework ID'
+            });
+        }
+
+        // Validation
+        if (!title) {
+            return res.status(400).json({
+                success: false,
+                message: 'Title is required'
+            });
+        }
+
+        // Validate status
+        const validStatuses = ['Completed', 'Ongoing', 'Upcoming'];
+        const courseStatus = status && validStatuses.includes(status) ? status : 'Ongoing';
+
+        const updatedCoursework = {
+            title: title.trim(),
+            status: courseStatus,
+            updatedAt: new Date()
+        };
+
+        const result = await courseworkCollection.updateOne(
+            { _id: new ObjectId(id) },
+            { $set: updatedCoursework }
+        );
+
+        if (result.matchedCount === 0) {
+            return res.status(404).json({
+                success: false,
+                message: 'Coursework not found'
+            });
+        }
+
+        // Get updated coursework
+        const coursework = await courseworkCollection.findOne({ _id: new ObjectId(id) });
+
+        res.json({
+            success: true,
+            message: 'Coursework updated successfully',
+            data: coursework
+        });
+    } catch (error) {
+        console.error('Error updating coursework:', error);
+        res.status(500).json({
+            success: false,
+            message: 'Error updating coursework',
+            error: error.message
+        });
+    }
+});
+
+// Delete coursework (admin only)
+app.delete('/api/coursework/:id', async (req, res) => {
+    try {
+        const { id } = req.params;
+        const { userEmail } = req.body;
+
+        // Check if user is admin
+        if (userEmail !== 'rijoanmaruf@gmail.com') {
+            return res.status(403).json({
+                success: false,
+                message: 'Unauthorized access'
+            });
+        }
+
+        // Validate ObjectId
+        if (!ObjectId.isValid(id)) {
+            return res.status(400).json({
+                success: false,
+                message: 'Invalid coursework ID'
+            });
+        }
+
+        const result = await courseworkCollection.deleteOne({ _id: new ObjectId(id) });
+
+        if (result.deletedCount === 0) {
+            return res.status(404).json({
+                success: false,
+                message: 'Coursework not found'
+            });
+        }
+
+        res.json({
+            success: true,
+            message: 'Coursework deleted successfully'
+        });
+    } catch (error) {
+        console.error('Error deleting coursework:', error);
+        res.status(500).json({
+            success: false,
+            message: 'Error deleting coursework',
             error: error.message
         });
     }
