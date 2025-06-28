@@ -28,7 +28,7 @@ let db;
 // Connect to MongoDB
 async function connectDB() {
   try {
-    await client.connect();
+    // await client.connect();
     db = client.db("portfolioDB");
     projectsCollection = db.collection("projects");
     console.log("Connected to MongoDB!");
