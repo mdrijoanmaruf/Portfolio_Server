@@ -24,6 +24,7 @@ const client = new MongoClient(uri, {
 
 let projectsCollection;
 let courseworkCollection;
+let contactsCollection;
 let db;
 
 // Connect to MongoDB
@@ -33,6 +34,7 @@ async function connectDB() {
     db = client.db("portfolioDB");
     projectsCollection = db.collection("projects");
     courseworkCollection = db.collection("coursework");
+    contactsCollection = db.collection("contacts");
     console.log("Connected to MongoDB!");
   } catch (error) {
     console.error("Failed to connect to MongoDB:", error);
@@ -477,6 +479,188 @@ app.delete('/api/coursework/:id', async (req, res) => {
         res.status(500).json({
             success: false,
             message: 'Error deleting coursework',
+            error: error.message
+        });
+    }
+});
+
+// Contact Form Routes
+
+// Submit contact form
+app.post('/api/contacts', async (req, res) => {
+    try {
+        const { name, email, message } = req.body;
+
+        // Validation
+        if (!name || !email || !message) {
+            return res.status(400).json({
+                success: false,
+                message: 'Name, email, and message are required'
+            });
+        }
+
+        // Email validation
+        const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+        if (!emailRegex.test(email)) {
+            return res.status(400).json({
+                success: false,
+                message: 'Please provide a valid email address'
+            });
+        }
+
+        // Create contact object
+        const newContact = {
+            name: name.trim(),
+            email: email.trim().toLowerCase(),
+            message: message.trim(),
+            isRead: false,
+            createdAt: new Date(),
+            updatedAt: new Date()
+        };
+
+        const result = await contactsCollection.insertOne(newContact);
+
+        res.status(201).json({
+            success: true,
+            message: 'Message sent successfully! Thank you for reaching out.',
+            data: {
+                _id: result.insertedId,
+                ...newContact
+            }
+        });
+    } catch (error) {
+        console.error('Error submitting contact form:', error);
+        res.status(500).json({
+            success: false,
+            message: 'Failed to send message. Please try again.',
+            error: error.message
+        });
+    }
+});
+
+// Get all contacts (admin only)
+app.get('/api/contacts', async (req, res) => {
+    try {
+        const { userEmail } = req.query;
+
+        // Check if user is admin
+        if (userEmail !== 'rijoanmaruf@gmail.com') {
+            return res.status(403).json({
+                success: false,
+                message: 'Unauthorized access'
+            });
+        }
+
+        const contacts = await contactsCollection.find({}).sort({ createdAt: -1 }).toArray();
+        
+        res.json({
+            success: true,
+            count: contacts.length,
+            data: contacts
+        });
+    } catch (error) {
+        console.error('Error fetching contacts:', error);
+        res.status(500).json({
+            success: false,
+            message: 'Error fetching contacts',
+            error: error.message
+        });
+    }
+});
+
+// Mark contact as read (admin only)
+app.put('/api/contacts/:id/read', async (req, res) => {
+    try {
+        const { id } = req.params;
+        const { userEmail } = req.body;
+
+        // Check if user is admin
+        if (userEmail !== 'rijoanmaruf@gmail.com') {
+            return res.status(403).json({
+                success: false,
+                message: 'Unauthorized access'
+            });
+        }
+
+        // Validate ObjectId
+        if (!ObjectId.isValid(id)) {
+            return res.status(400).json({
+                success: false,
+                message: 'Invalid contact ID'
+            });
+        }
+
+        const result = await contactsCollection.updateOne(
+            { _id: new ObjectId(id) },
+            { 
+                $set: { 
+                    isRead: true,
+                    updatedAt: new Date()
+                }
+            }
+        );
+
+        if (result.matchedCount === 0) {
+            return res.status(404).json({
+                success: false,
+                message: 'Contact not found'
+            });
+        }
+
+        res.json({
+            success: true,
+            message: 'Contact marked as read'
+        });
+    } catch (error) {
+        console.error('Error updating contact:', error);
+        res.status(500).json({
+            success: false,
+            message: 'Error updating contact',
+            error: error.message
+        });
+    }
+});
+
+// Delete contact (admin only)
+app.delete('/api/contacts/:id', async (req, res) => {
+    try {
+        const { id } = req.params;
+        const { userEmail } = req.body;
+
+        // Check if user is admin
+        if (userEmail !== 'rijoanmaruf@gmail.com') {
+            return res.status(403).json({
+                success: false,
+                message: 'Unauthorized access'
+            });
+        }
+
+        // Validate ObjectId
+        if (!ObjectId.isValid(id)) {
+            return res.status(400).json({
+                success: false,
+                message: 'Invalid contact ID'
+            });
+        }
+
+        const result = await contactsCollection.deleteOne({ _id: new ObjectId(id) });
+
+        if (result.deletedCount === 0) {
+            return res.status(404).json({
+                success: false,
+                message: 'Contact not found'
+            });
+        }
+
+        res.json({
+            success: true,
+            message: 'Contact deleted successfully'
+        });
+    } catch (error) {
+        console.error('Error deleting contact:', error);
+        res.status(500).json({
+            success: false,
+            message: 'Error deleting contact',
             error: error.message
         });
     }
