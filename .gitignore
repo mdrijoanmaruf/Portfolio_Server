@@ -16,3 +16,4 @@ Thumbs.db
 # Optional: VSCode settings
 .vscode/
 .vercel
+firebase-service-account.json

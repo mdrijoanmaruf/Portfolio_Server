@@ -4,6 +4,7 @@ const dotenv = require('dotenv')
 const { MongoClient, ServerApiVersion, ObjectId } = require('mongodb');
 const requestIp = require('request-ip');
 const useragent = require('express-useragent');
+const geoip = require('geoip-lite');
 
 const PORT = process.env.PORT || 5000;
 
@@ -50,6 +51,38 @@ async function connectDB() {
 // Initialize database connection
 connectDB();
 
+// Function to get location from IP
+const getLocationFromIp = (ip) => {
+  try {
+    // For local development IPs, return placeholder data
+    if (ip === '127.0.0.1' || ip === '::1' || ip.startsWith('192.168.') || ip.startsWith('10.')) {
+      return {
+        country: 'Local',
+        region: 'Development',
+        city: 'localhost',
+        ll: [0, 0] // latitude, longitude
+      };
+    }
+    
+    // Look up IP location
+    const geo = geoip.lookup(ip);
+    return geo || {
+      country: 'Unknown',
+      region: '',
+      city: '',
+      ll: [0, 0]
+    };
+  } catch (error) {
+    console.error('Error looking up IP location:', error);
+    return {
+      country: 'Error',
+      region: '',
+      city: '',
+      ll: [0, 0]
+    };
+  }
+};
+
 // Middleware to track visitor
 const trackVisitor = async (req, res, next) => {
   try {
@@ -65,6 +98,9 @@ const trackVisitor = async (req, res, next) => {
     const device = userAgent.isMobile ? 'Mobile' : 
                   userAgent.isTablet ? 'Tablet' : 'Desktop';
     const os = userAgent.os;
+    
+    // Get location from IP
+    const location = getLocationFromIp(ip);
     
     const now = new Date();
     
@@ -82,7 +118,14 @@ const trackVisitor = async (req, res, next) => {
             device,
             os,
             // Update session start time for time tracking
-            sessionStart: now
+            sessionStart: now,
+            // Update location data if it was missing or incomplete
+            location: existingVisitor.location || {
+              country: location.country,
+              region: location.region,
+              city: location.city,
+              coordinates: location.ll
+            }
           },
           $inc: { visitCount: 1 }
         }
@@ -99,7 +142,13 @@ const trackVisitor = async (req, res, next) => {
         visitCount: 1,
         totalTimeSpent: 0,
         sessionStart: now,
-        path: req.path
+        path: req.path,
+        location: {
+          country: location.country,
+          region: location.region,
+          city: location.city,
+          coordinates: location.ll
+        }
       });
     }
     
