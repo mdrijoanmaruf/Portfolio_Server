@@ -139,6 +139,7 @@ app.post('/api/projects', async (req, res) => {
             clientSourceCode,
             serverSourceCode,
             liveLink,
+            liveVideoUrl,
             isFeatured,
             tags
         } = req.body;
@@ -159,6 +160,7 @@ app.post('/api/projects', async (req, res) => {
             clientSourceCode: clientSourceCode ? clientSourceCode.trim() : null,
             serverSourceCode: serverSourceCode ? serverSourceCode.trim() : null,
             liveLink: liveLink ? liveLink.trim() : null,
+            liveVideoUrl: liveVideoUrl ? liveVideoUrl.trim() : null,
             isFeatured: Boolean(isFeatured),
             tags: Array.isArray(tags) ? tags.map(tag => tag.trim()) : [],
             createdAt: new Date(),
@@ -232,6 +234,7 @@ app.put('/api/projects/:id', async (req, res) => {
             clientSourceCode,
             serverSourceCode,
             liveLink,
+            liveVideoUrl,
             isFeatured,
             tags
         } = req.body;
@@ -260,6 +263,7 @@ app.put('/api/projects/:id', async (req, res) => {
             clientSourceCode: clientSourceCode ? clientSourceCode.trim() : null,
             serverSourceCode: serverSourceCode ? serverSourceCode.trim() : null,
             liveLink: liveLink ? liveLink.trim() : null,
+            liveVideoUrl: liveVideoUrl ? liveVideoUrl.trim() : null,
             isFeatured: Boolean(isFeatured),
             tags: Array.isArray(tags) ? tags.map(tag => tag.trim()) : [],
             updatedAt: new Date()
