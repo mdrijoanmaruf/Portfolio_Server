@@ -2,9 +2,6 @@ const express = require('express')
 const cors = require('cors')
 const dotenv = require('dotenv')
 const { MongoClient, ServerApiVersion, ObjectId } = require('mongodb');
-const requestIp = require('request-ip');
-const useragent = require('express-useragent');
-const geoip = require('geoip-lite');
 
 const PORT = process.env.PORT || 5000;
 
@@ -13,8 +10,6 @@ dotenv.config()
 const app = express()
 app.use(cors())
 app.use(express.json())
-app.use(requestIp.mw())
-app.use(useragent.express())
 
 // MongoDB Connection
 const uri = process.env.MONGODB_URI;
@@ -30,7 +25,6 @@ const client = new MongoClient(uri, {
 let projectsCollection;
 let courseworkCollection;
 let contactsCollection;
-let visitorsCollection;
 let db;
 
 // Connect to MongoDB
@@ -41,7 +35,6 @@ async function connectDB() {
     projectsCollection = db.collection("projects");
     courseworkCollection = db.collection("coursework");
     contactsCollection = db.collection("contacts");
-    visitorsCollection = db.collection("visitors");
     console.log("Connected to MongoDB!");
   } catch (error) {
     console.error("Failed to connect to MongoDB:", error);
@@ -50,245 +43,6 @@ async function connectDB() {
 
 // Initialize database connection
 connectDB();
-
-// Function to get location from IP
-const getLocationFromIp = (ip) => {
-  try {
-    // For local development IPs, return placeholder data
-    if (ip === '127.0.0.1' || ip === '::1' || ip.startsWith('192.168.') || ip.startsWith('10.')) {
-      return {
-        country: 'Local',
-        region: 'Development',
-        city: 'localhost',
-        ll: [0, 0] // latitude, longitude
-      };
-    }
-    
-    // Look up IP location
-    const geo = geoip.lookup(ip);
-    return geo || {
-      country: 'Unknown',
-      region: '',
-      city: '',
-      ll: [0, 0]
-    };
-  } catch (error) {
-    console.error('Error looking up IP location:', error);
-    return {
-      country: 'Error',
-      region: '',
-      city: '',
-      ll: [0, 0]
-    };
-  }
-};
-
-// Middleware to track visitor
-const trackVisitor = async (req, res, next) => {
-  try {
-    // Skip tracking for API requests and admin routes
-    if (req.path.startsWith('/api/') || req.path.startsWith('/admin')) {
-      return next();
-    }
-
-    const ip = req.clientIp || '127.0.0.1';
-    const userAgent = req.useragent;
-    
-    const browser = `${userAgent.browser} ${userAgent.version}`;
-    const device = userAgent.isMobile ? 'Mobile' : 
-                  userAgent.isTablet ? 'Tablet' : 'Desktop';
-    const os = userAgent.os;
-    
-    // Get location from IP
-    const location = getLocationFromIp(ip);
-    
-    const now = new Date();
-    
-    // Check if this IP exists in the database
-    const existingVisitor = await visitorsCollection.findOne({ ip });
-    
-    if (existingVisitor) {
-      // Update existing visitor record
-      await visitorsCollection.updateOne(
-        { ip },
-        { 
-          $set: { 
-            lastVisit: now,
-            browser,
-            device,
-            os,
-            // Update session start time for time tracking
-            sessionStart: now,
-            // Update location data if it was missing or incomplete
-            location: existingVisitor.location || {
-              country: location.country,
-              region: location.region,
-              city: location.city,
-              coordinates: location.ll
-            }
-          },
-          $inc: { visitCount: 1 }
-        }
-      );
-    } else {
-      // Create new visitor record
-      await visitorsCollection.insertOne({
-        ip,
-        browser,
-        device,
-        os,
-        firstVisit: now,
-        lastVisit: now,
-        visitCount: 1,
-        totalTimeSpent: 0,
-        sessionStart: now,
-        path: req.path,
-        location: {
-          country: location.country,
-          region: location.region,
-          city: location.city,
-          coordinates: location.ll
-        }
-      });
-    }
-    
-    // Add session ID to identify this visit
-    req.visitorSessionId = now.getTime().toString();
-    res.cookie('visitorSessionId', req.visitorSessionId, { 
-      maxAge: 24 * 60 * 60 * 1000, // 24 hours
-      httpOnly: true 
-    });
-    
-  } catch (error) {
-    console.error('Error tracking visitor:', error);
-  }
-  
-  next();
-};
-
-// Apply visitor tracking middleware
-app.use(trackVisitor);
-
-// Endpoint to update session time when user leaves
-app.post('/api/track/end-session', async (req, res) => {
-  try {
-    const { sessionId, timeSpent } = req.body;
-    const ip = req.clientIp || '127.0.0.1';
-    
-    if (!sessionId || !timeSpent) {
-      return res.status(400).json({ 
-        success: false, 
-        message: 'Session ID and time spent are required' 
-      });
-    }
-    
-    // Update the visitor's total time spent
-    await visitorsCollection.updateOne(
-      { ip },
-      { 
-        $inc: { totalTimeSpent: Number(timeSpent) },
-        $unset: { sessionStart: "" }
-      }
-    );
-    
-    res.json({ success: true });
-  } catch (error) {
-    console.error('Error updating session time:', error);
-    res.status(500).json({ 
-      success: false,
-      message: 'Error updating session time'
-    });
-  }
-});
-
-// Route to get visitors data
-app.get('/api/visitors', async (req, res) => {
-  try {
-    const { userEmail } = req.query;
-
-    // Check if user is admin
-    if (userEmail !== 'rijoanmaruf@gmail.com') {
-      return res.status(403).json({
-        success: false,
-        message: 'Unauthorized access'
-      });
-    }
-
-    const visitors = await visitorsCollection.find({}).sort({ lastVisit: -1 }).toArray();
-    
-    res.json({
-      success: true,
-      count: visitors.length,
-      data: visitors
-    });
-  } catch (error) {
-    console.error('Error fetching visitors:', error);
-    res.status(500).json({
-      success: false,
-      message: 'Error fetching visitors',
-      error: error.message
-    });
-  }
-});
-
-// Client-side tracking code endpoint
-app.get('/api/track/script.js', (req, res) => {
-  const trackingScript = `
-    // Visitor tracking script
-    (function() {
-      const sessionId = new Date().getTime().toString();
-      const startTime = new Date();
-      
-      // Function to send time spent data when user leaves page
-      function sendTimeSpent() {
-        const timeSpent = Math.floor((new Date() - startTime) / 1000); // Time in seconds
-        
-        // Only send if time is significant
-        if (timeSpent > 3) {
-          navigator.sendBeacon('/api/track/end-session', JSON.stringify({
-            sessionId: sessionId,
-            timeSpent: timeSpent
-          }));
-        }
-      }
-      
-      // Track when user leaves page
-      window.addEventListener('beforeunload', sendTimeSpent);
-      
-      // Track page changes in SPA
-      const originalPushState = history.pushState;
-      history.pushState = function() {
-        sendTimeSpent();
-        originalPushState.apply(this, arguments);
-        // Reset timer for new page
-        startTime = new Date();
-      };
-      
-      // Add periodic updates for long sessions
-      setInterval(() => {
-        const currentTimeSpent = Math.floor((new Date() - startTime) / 1000);
-        if (currentTimeSpent > 60) { // Update every minute for long sessions
-          fetch('/api/track/end-session', {
-            method: 'POST',
-            headers: {
-              'Content-Type': 'application/json'
-            },
-            body: JSON.stringify({
-              sessionId: sessionId,
-              timeSpent: currentTimeSpent
-            })
-          }).then(() => {
-            // Reset timer after updating
-            startTime = new Date();
-          });
-        }
-      }, 60000); // Check every minute
-    })();
-  `;
-  
-  res.set('Content-Type', 'application/javascript');
-  res.send(trackingScript);
-});
 
 // Routes
 
