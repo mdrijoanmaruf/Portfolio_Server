@@ -136,6 +136,7 @@ app.post('/api/projects', async (req, res) => {
             title,
             description,
             image,
+            images,
             clientSourceCode,
             serverSourceCode,
             liveLink,
@@ -157,6 +158,7 @@ app.post('/api/projects', async (req, res) => {
             title: title.trim(),
             description: description.trim(),
             image: image.trim(),
+            images: Array.isArray(images) ? images : [], // Handle multiple images
             clientSourceCode: clientSourceCode ? clientSourceCode.trim() : null,
             serverSourceCode: serverSourceCode ? serverSourceCode.trim() : null,
             liveLink: liveLink ? liveLink.trim() : null,
@@ -231,6 +233,7 @@ app.put('/api/projects/:id', async (req, res) => {
             title,
             description,
             image,
+            images,
             clientSourceCode,
             serverSourceCode,
             liveLink,
@@ -260,6 +263,7 @@ app.put('/api/projects/:id', async (req, res) => {
             title: title.trim(),
             description: description.trim(),
             image: image.trim(),
+            images: Array.isArray(images) ? images : [], // Handle multiple images
             clientSourceCode: clientSourceCode ? clientSourceCode.trim() : null,
             serverSourceCode: serverSourceCode ? serverSourceCode.trim() : null,
             liveLink: liveLink ? liveLink.trim() : null,
