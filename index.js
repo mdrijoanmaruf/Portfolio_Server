@@ -1,6 +1,7 @@
 const express = require('express')
 const cors = require('cors')
 const dotenv = require('dotenv')
+const nodemailer = require('nodemailer')
 const { MongoClient, ServerApiVersion, ObjectId } = require('mongodb');
 
 const PORT = process.env.PORT || 5000;
@@ -24,7 +25,7 @@ const client = new MongoClient(uri, {
 
 let projectsCollection;
 let courseworkCollection;
-let contactsCollection;
+let resumeCollection;
 let db;
 
 // Connect to MongoDB
@@ -34,7 +35,7 @@ async function connectDB() {
     db = client.db("portfolioDB");
     projectsCollection = db.collection("projects");
     courseworkCollection = db.collection("coursework");
-    contactsCollection = db.collection("contacts");
+    resumeCollection = db.collection("resume");
     console.log("Connected to MongoDB!");
   } catch (error) {
     console.error("Failed to connect to MongoDB:", error);
@@ -43,6 +44,24 @@ async function connectDB() {
 
 // Initialize database connection
 connectDB();
+
+// Configure nodemailer
+const transporter = nodemailer.createTransport({
+    service: process.env.EMAIL_SERVICE || 'gmail',
+    auth: {
+        user: process.env.EMAIL_USER,
+        pass: process.env.EMAIL_PASS
+    }
+});
+
+// Verify email configuration
+transporter.verify((error, success) => {
+    if (error) {
+        console.log('Email configuration error:', error);
+    } else {
+        console.log('Email server is ready to send messages');
+    }
+});
 
 // Routes
 
@@ -492,9 +511,96 @@ app.delete('/api/coursework/:id', async (req, res) => {
     }
 });
 
-// Contact Form Routes
+// Resume Link Management Routes
 
-// Submit contact form
+// Get resume link
+app.get('/api/resume', async (req, res) => {
+    try {
+        const resumeData = await resumeCollection.findOne({});
+        
+        if (!resumeData) {
+            // Return default if no resume link is set
+            res.json({
+                success: true,
+                data: {
+                    link: null,
+                    updatedAt: null
+                }
+            });
+        } else {
+            res.json({
+                success: true,
+                data: resumeData
+            });
+        }
+    } catch (error) {
+        console.error('Error fetching resume link:', error);
+        res.status(500).json({
+            success: false,
+            message: 'Error fetching resume link',
+            error: error.message
+        });
+    }
+});
+
+// Update resume link (admin only)
+app.put('/api/resume', async (req, res) => {
+    try {
+        const { link, userEmail } = req.body;
+
+        // Check if user is admin
+        if (userEmail !== 'rijoanmaruf@gmail.com') {
+            return res.status(403).json({
+                success: false,
+                message: 'Unauthorized access'
+            });
+        }
+
+        // Validation
+        if (!link || link.trim() === '') {
+            return res.status(400).json({
+                success: false,
+                message: 'Resume link is required'
+            });
+        }
+
+        // URL validation (basic)
+        const urlRegex = /^https?:\/\/.+/;
+        if (!urlRegex.test(link.trim())) {
+            return res.status(400).json({
+                success: false,
+                message: 'Please provide a valid URL (must start with http:// or https://)'
+            });
+        }
+
+        const resumeData = {
+            link: link.trim(),
+            updatedAt: new Date()
+        };
+
+        // Use upsert to update if exists or create if doesn't exist
+        const result = await resumeCollection.replaceOne(
+            {},
+            resumeData,
+            { upsert: true }
+        );
+
+        res.json({
+            success: true,
+            message: 'Resume link updated successfully',
+            data: resumeData
+        });
+    } catch (error) {
+        console.error('Error updating resume link:', error);
+        res.status(500).json({
+            success: false,
+            message: 'Error updating resume link',
+            error: error.message
+        });
+    }
+});
+
+// Contact Form Route - Send Email
 app.post('/api/contacts', async (req, res) => {
     try {
         const { name, email, message } = req.body;
@@ -516,160 +622,89 @@ app.post('/api/contacts', async (req, res) => {
             });
         }
 
-        // Create contact object
-        const newContact = {
-            name: name.trim(),
-            email: email.trim().toLowerCase(),
-            message: message.trim(),
-            isRead: false,
-            createdAt: new Date(),
-            updatedAt: new Date()
+        // Email options
+        const mailOptions = {
+            from: process.env.EMAIL_FROM || `"Portfolio Contact" <${process.env.EMAIL_USER}>`,
+            to: process.env.EMAIL_USER, // Send to your email
+            subject: `New Contact Form Message from ${name.trim()}`,
+            html: `
+                <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px; background-color: #f9f9f9;">
+                    <div style="background-color: #ffffff; padding: 30px; border-radius: 10px; box-shadow: 0 2px 10px rgba(0,0,0,0.1);">
+                        <h2 style="color: #333; margin-bottom: 20px; border-bottom: 2px solid #4f46e5; padding-bottom: 10px;">
+                            New Contact Form Submission
+                        </h2>
+                        
+                        <div style="margin-bottom: 15px;">
+                            <strong style="color: #555;">Name:</strong>
+                            <span style="margin-left: 10px; color: #333;">${name.trim()}</span>
+                        </div>
+                        
+                        <div style="margin-bottom: 15px;">
+                            <strong style="color: #555;">Email:</strong>
+                            <a href="mailto:${email.trim()}" style="margin-left: 10px; color: #4f46e5; text-decoration: none;">
+                                ${email.trim()}
+                            </a>
+                        </div>
+                        
+                        <div style="margin-bottom: 20px;">
+                            <strong style="color: #555;">Message:</strong>
+                        </div>
+                        
+                        <div style="background-color: #f8f9fa; padding: 20px; border-left: 4px solid #4f46e5; border-radius: 4px;">
+                            <p style="margin: 0; line-height: 1.6; color: #333;">
+                                ${message.trim().replace(/\n/g, '<br>')}
+                            </p>
+                        </div>
+                        
+                        <div style="margin-top: 20px; padding-top: 20px; border-top: 1px solid #eee;">
+                            <small style="color: #888;">
+                                Received on: ${new Date().toLocaleString('en-US', {
+                                    weekday: 'long',
+                                    year: 'numeric',
+                                    month: 'long',
+                                    day: 'numeric',
+                                    hour: '2-digit',
+                                    minute: '2-digit'
+                                })}
+                            </small>
+                        </div>
+                        
+                        <div style="margin-top: 15px;">
+                            <a href="mailto:${email.trim()}?subject=Re: Your message to Rijoan Maruf" 
+                               style="display: inline-block; background-color: #4f46e5; color: white; padding: 10px 20px; text-decoration: none; border-radius: 5px; font-weight: bold;">
+                                Reply to ${name.trim()}
+                            </a>
+                        </div>
+                    </div>
+                </div>
+            `,
+            text: `
+New Contact Form Submission
+
+Name: ${name.trim()}
+Email: ${email.trim()}
+
+Message:
+${message.trim()}
+
+Received on: ${new Date().toLocaleString()}
+            `.trim()
         };
 
-        const result = await contactsCollection.insertOne(newContact);
+        // Send email
+        await transporter.sendMail(mailOptions);
 
-        res.status(201).json({
+        res.status(200).json({
             success: true,
-            message: 'Message sent successfully! Thank you for reaching out.',
-            data: {
-                _id: result.insertedId,
-                ...newContact
-            }
+            message: 'Message sent successfully! Thank you for reaching out.'
         });
+
     } catch (error) {
-        console.error('Error submitting contact form:', error);
+        console.error('Error sending email:', error);
         res.status(500).json({
             success: false,
             message: 'Failed to send message. Please try again.',
-            error: error.message
-        });
-    }
-});
-
-// Get all contacts (admin only)
-app.get('/api/contacts', async (req, res) => {
-    try {
-        const { userEmail } = req.query;
-
-        // Check if user is admin
-        if (userEmail !== 'rijoanmaruf@gmail.com') {
-            return res.status(403).json({
-                success: false,
-                message: 'Unauthorized access'
-            });
-        }
-
-        const contacts = await contactsCollection.find({}).sort({ createdAt: -1 }).toArray();
-        
-        res.json({
-            success: true,
-            count: contacts.length,
-            data: contacts
-        });
-    } catch (error) {
-        console.error('Error fetching contacts:', error);
-        res.status(500).json({
-            success: false,
-            message: 'Error fetching contacts',
-            error: error.message
-        });
-    }
-});
-
-// Mark contact as read (admin only)
-app.put('/api/contacts/:id/read', async (req, res) => {
-    try {
-        const { id } = req.params;
-        const { userEmail } = req.body;
-
-        // Check if user is admin
-        if (userEmail !== 'rijoanmaruf@gmail.com') {
-            return res.status(403).json({
-                success: false,
-                message: 'Unauthorized access'
-            });
-        }
-
-        // Validate ObjectId
-        if (!ObjectId.isValid(id)) {
-            return res.status(400).json({
-                success: false,
-                message: 'Invalid contact ID'
-            });
-        }
-
-        const result = await contactsCollection.updateOne(
-            { _id: new ObjectId(id) },
-            { 
-                $set: { 
-                    isRead: true,
-                    updatedAt: new Date()
-                }
-            }
-        );
-
-        if (result.matchedCount === 0) {
-            return res.status(404).json({
-                success: false,
-                message: 'Contact not found'
-            });
-        }
-
-        res.json({
-            success: true,
-            message: 'Contact marked as read'
-        });
-    } catch (error) {
-        console.error('Error updating contact:', error);
-        res.status(500).json({
-            success: false,
-            message: 'Error updating contact',
-            error: error.message
-        });
-    }
-});
-
-// Delete contact (admin only)
-app.delete('/api/contacts/:id', async (req, res) => {
-    try {
-        const { id } = req.params;
-        const { userEmail } = req.body;
-
-        // Check if user is admin
-        if (userEmail !== 'rijoanmaruf@gmail.com') {
-            return res.status(403).json({
-                success: false,
-                message: 'Unauthorized access'
-            });
-        }
-
-        // Validate ObjectId
-        if (!ObjectId.isValid(id)) {
-            return res.status(400).json({
-                success: false,
-                message: 'Invalid contact ID'
-            });
-        }
-
-        const result = await contactsCollection.deleteOne({ _id: new ObjectId(id) });
-
-        if (result.deletedCount === 0) {
-            return res.status(404).json({
-                success: false,
-                message: 'Contact not found'
-            });
-        }
-
-        res.json({
-            success: true,
-            message: 'Contact deleted successfully'
-        });
-    } catch (error) {
-        console.error('Error deleting contact:', error);
-        res.status(500).json({
-            success: false,
-            message: 'Error deleting contact',
-            error: error.message
+            error: process.env.NODE_ENV === 'development' ? error.message : 'Internal server error'
         });
     }
 });
